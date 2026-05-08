@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>有美美學圖文選單</title>
+<style>
+body { 
+  margin: 0; 
+  padding: 20px;
+  background: #f0f0f0;
+  font-family: Arial, sans-serif;
+}
+#canvas { 
+  border: 2px solid #ccc; 
+  display: block;
+  margin: 20px auto;
+}
+button {
+  display: block;
+  margin: 20px auto;
+  padding: 15px 40px;
+  font-size: 18px;
+  background: #D4AF37;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+}
+button:hover {
+  background: #C5A028;
+}
+</style>
+</head>
+<body>
+
+<canvas id="canvas" width="2500" height="1686"></canvas>
+<button onclick="download()">📥 下載圖片 (richmenu.png)</button>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+// 米白色背景
+const gradient = ctx.createLinearGradient(0, 0, 0, 1686);
+gradient.addColorStop(0, '#FAF8F3');
+gradient.addColorStop(1, '#F5F5DC');
+ctx.fillStyle = gradient;
+ctx.fillRect(0, 0, 2500, 1686);
+
+// 格線 - 金色細線
+ctx.strokeStyle = '#D4AF37';
+ctx.lineWidth = 3;
+
+// 垂直線
+ctx.beginPath();
+ctx.moveTo(833, 0);
+ctx.lineTo(833, 1686);
+ctx.stroke();
+
+ctx.beginPath();
+ctx.moveTo(1667, 0);
+ctx.lineTo(1667, 1686);
+ctx.stroke();
+
+// 水平線
+ctx.beginPath();
+ctx.moveTo(0, 843);
+ctx.lineTo(2500, 843);
+ctx.stroke();
+
+// 每個格子加上淡淡的邊框
+ctx.strokeStyle = 'rgba(212, 175, 55, 0.3)';
+ctx.lineWidth = 2;
+ctx.strokeRect(10, 10, 813, 823);
+ctx.strokeRect(843, 10, 813, 823);
+ctx.strokeRect(1677, 10, 813, 823);
+ctx.strokeRect(10, 853, 813, 823);
+ctx.strokeRect(843, 853, 813, 823);
+ctx.strokeRect(1677, 853, 813, 823);
+
+// 設定文字樣式
+ctx.textAlign = 'center';
+ctx.textBaseline = 'middle';
+
+// Emoji 設定
+ctx.font = 'bold 140px Arial';
+
+// 第一列 Emoji
+ctx.fillText('💅', 416, 340);
+ctx.fillText('✨', 1250, 340);
+ctx.fillText('⏰', 2083, 340);
+
+// 第二列 Emoji
+ctx.fillText('📍', 416, 1183);
+ctx.fillText('📋', 1250, 1183);
+ctx.fillText('📞', 2083, 1183);
+
+// 文字 - 深咖啡色
+ctx.fillStyle = '#5D4037';
+ctx.font = 'bold 85px "Microsoft JhengHei", Arial, sans-serif';
+
+// 第一列文字
+ctx.fillText('預約服務', 416, 510);
+ctx.fillText('服務項目', 1250, 510);
+ctx.fillText('營業時間', 2083, 510);
+
+// 第二列文字
+ctx.fillText('店面位置', 416, 1353);
+ctx.fillText('注意事項', 1250, 1353);
+ctx.fillText('聯絡我們', 2083, 1353);
+
+// 加上金色小點綴線
+ctx.strokeStyle = '#D4AF37';
+ctx.lineWidth = 4;
+
+// 第一列底線
+ctx.beginPath();
+ctx.moveTo(260, 570);
+ctx.lineTo(572, 570);
+ctx.stroke();
+
+ctx.beginPath();
+ctx.moveTo(1094, 570);
+ctx.lineTo(1406, 570);
+ctx.stroke();
+
+ctx.beginPath();
+ctx.moveTo(1927, 570);
+ctx.lineTo(2239, 570);
+ctx.stroke();
+
+// 第二列底線
+ctx.beginPath();
+ctx.moveTo(260, 1413);
+ctx.lineTo(572, 1413);
+ctx.stroke();
+
+ctx.beginPath();
+ctx.moveTo(1094, 1413);
+ctx.lineTo(1406, 1413);
+ctx.stroke();
+
+ctx.beginPath();
+ctx.moveTo(1927, 1413);
+ctx.lineTo(2239, 1413);
+ctx.stroke();
+
+// 下載函數
+function download() {
+  const link = document.createElement('a');
+  link.download = 'richmenu.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  alert('✅ 圖片已下載！請將 richmenu.png 放到 Desktop\\nail-booking-bot 資料夾');
+}
+</script>
+
+</body>
+</html>
