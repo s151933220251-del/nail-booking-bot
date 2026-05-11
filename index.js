@@ -36,7 +36,7 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 async function getClaudeResponse(userMessage) {
   try {
     const message = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',  // ← 改成這個
+      model: 'claude-sonnet-4-6',  // ← 改成這個
       max_tokens: 1024,
       system: `你是「有美美學美容工作室」的專業客服助理。
 
