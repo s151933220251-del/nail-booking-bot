@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const line = require('@line/bot-sdk');
+const Anthropic = require('@anthropic-ai/sdk');
 
 // LINE Bot 設定
 const config = {
@@ -11,6 +12,11 @@ const config = {
 
 // 建立 LINE Bot client
 const client = new line.messagingApi.MessagingApiClient(config);
+
+// 建立 Claude client
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY
+});
 
 // 建立 Express 伺服器
 const app = express();
@@ -26,6 +32,51 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
+// AI 回覆函數
+async function getClaudeResponse(userMessage) {
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      system: `你是「有美美學美容工作室」的專業客服助理。
+
+店家資訊：
+- 店名：有美美學美容工作室
+- 地址：台北市萬華區貴陽街20號2樓
+- 電話：0966-698-612
+- 營業時間：週一至週日 10:00-21:00
+- Instagram：https://www.instagram.com/umei1341_studio/
+
+服務項目與價格：
+【美甲】單色 $900、雙色 $1,100、法式 $1,200、漸層 $1,300、造型設計 $1,200-2,000
+【美睫】$1,200 起
+【精油按摩】$1,500 起
+【紋眉】$5,000 起
+【牙齒美白】$3,000 起
+【採耳】$800 起
+
+回覆原則：
+1. 用繁體中文回答
+2. 親切專業，不過度熱情
+3. 回答簡潔（3-5 行為主）
+4. 如果問到價格，提供價格後可主動詢問是否需要預約
+5. 如果客戶想預約，引導他們提供：服務項目、日期、時間、姓名、電話
+6. 不確定的事情不要亂說，建議客戶來電詢問`,
+      messages: [
+        {
+          role: 'user',
+          content: userMessage
+        }
+      ]
+    });
+    
+    return message.content[0].text;
+    
+  } catch (error) {
+    console.error('Claude API 錯誤:', error);
+    return '抱歉，系統暫時忙碌中，請稍後再試或直接來電 0966-698-612 📞';
+  }
+}
 // 處理訊息事件
 async function handleEvent(event) {
   // 只處理文字訊息
@@ -317,8 +368,10 @@ async function handleEvent(event) {
   else if (userMessage.includes('付款') || userMessage.includes('怎麼付') || userMessage.includes('支付') || userMessage.includes('刷卡')) {
     replyMessage = '💳 付款方式\n\n我們接受：\n\n💵 現金\n💳 信用卡（單筆滿 $1,000）\n📱 LINE Pay\n📱 街口支付\n🏦 轉帳（需提前告知）\n\n💰 訂金說明：\n部分服務需預付 30% 訂金\n（紋眉、牙齒美白等）\n\n現場付款即可 ☺️\n\n有問題歡迎詢問！';
   }
-  else {
-    replyMessage = '✨ 有美美學美容工作室 ✨\n\n我可以幫您：\n\n📅 預約服務\n💰 查詢價格\n⏰ 營業時間\n💅 服務項目\n📍 店面位置\n📸 作品集\n💳 付款方式\n📋 注意事項\n\n📍 台北市萬華區貴陽街20號2樓\n⏰ 週一至週日 10:00-21:00\n📞 0966-698-612\n\n請告訴我需要什麼協助！';
+else {
+    // 🤖 沒有匹配的關鍵字，交給 AI 處理
+    console.log('🤖 使用 AI 回覆:', userMessage);
+    replyMessage = await getClaudeResponse(userMessage);
   }
 
   // 回覆訊息（一般文字）
