@@ -38,7 +38,7 @@ async function getClaudeResponse(userMessage) {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',  // ← 改成這個
       max_tokens: 1024,
-      system: `你是「有美美學美容工作室」的專業客服助理。
+      system: `你是「有美美學美容工作室」的專業LINE客服助理。
 
 店家資訊：
 - 店名：有美美學美容工作室
@@ -61,7 +61,7 @@ async function getClaudeResponse(userMessage) {
 3. 回答簡潔（3-5 行為主）
 4. 如果問到價格，提供價格後可主動詢問是否需要預約
 5. 如果客戶想預約，引導他們提供：服務項目、日期、時間、姓名、電話
-6. 不確定的事情不要亂說，建議客戶來電詢問`,
+6. 所以問題都長是再LINE解決`,
       messages: [
         {
           role: 'user',
