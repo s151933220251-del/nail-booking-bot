@@ -86,7 +86,18 @@ async function handleEvent(event) {
 
   // 取得用戶傳來的訊息
   const userMessage = event.message.text;
-  
+
+  // 取得 User ID（開發用）
+  if (userMessage === '我的ID') {
+    const userId = event.source.userId;
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [{
+        type: 'text',
+        text: `你的 LINE User ID:\n${userId}\n\n請複製並保存`
+      }]
+    });
+  }
   // 特殊處理：預約美甲（要在美甲價目表之前）
   if ((userMessage.includes('預約') && userMessage.includes('美甲')) || 
       userMessage.includes('我要預約美甲')) {
