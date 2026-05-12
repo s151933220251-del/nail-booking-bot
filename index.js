@@ -177,8 +177,10 @@ async function handleEvent(event) {
   if (userId === OWNER_USER_ID && event.message.type === 'text') {
     const userMessage = event.message.text;
     
-    // 查看封鎖記錄
-    if (userMessage === '查看封鎖記錄' || userMessage === '封鎖記錄') {
+    // 查看封鎖記錄（支援簡繁體、有無空格）
+    const checkCommand = userMessage.replace(/\s/g, ''); // 移除所有空格
+    
+    if (checkCommand === '查看封鎖記錄' || checkCommand === '查看封鎖紀錄' || checkCommand === '封鎖記錄' || checkCommand === '封鎖紀錄') {
       const unviewedBlocks = blockHistory.filter(b => !b.viewed);
       
       if (unviewedBlocks.length === 0) {
@@ -202,9 +204,12 @@ async function handleEvent(event) {
       }]);
     }
     
-    // 查看特定記錄
-    if (userMessage.startsWith('查看 ')) {
-      const index = parseInt(userMessage.replace('查看 ', '')) - 1;
+    // 查看特定記錄（支援有無空格）
+    const trimmedMessage = userMessage.replace(/\s/g, ''); // 移除所有空格
+    
+    if (trimmedMessage.startsWith('查看') && trimmedMessage.length > 2) {
+      const numberStr = trimmedMessage.replace('查看', '');
+      const index = parseInt(numberStr) - 1;
       const unviewedBlocks = blockHistory.filter(b => !b.viewed);
       
       if (index >= 0 && index < unviewedBlocks.length) {
@@ -226,9 +231,12 @@ async function handleEvent(event) {
       }
     }
     
-    // 解除封鎖
-    if (userMessage.startsWith('解除封鎖 ')) {
-      const index = parseInt(userMessage.replace('解除封鎖 ', '')) - 1;
+    // 解除封鎖（支援有無空格）
+    const unblockTrimmed = userMessage.replace(/\s/g, ''); // 移除所有空格
+    
+    if (unblockTrimmed.startsWith('解除封鎖') && unblockTrimmed.length > 4) {
+      const numberStr = unblockTrimmed.replace('解除封鎖', '');
+      const index = parseInt(numberStr) - 1;
       const record = blockHistory[index];
       
       if (record) {
@@ -468,7 +476,7 @@ async function handleEvent(event) {
         blockUser(userId, '閒聊超過 5 次', `最後訊息: ${userMessage}`);
         replyMessage = '很抱歉，由於您的詢問與我們的服務無關，系統已暫停您的使用權限。\n\n如有服務需求，歡迎來電：0966-698-612';
       } else {
-        replyMessage = `我主要協助美甲美睫的預約和諮詢 💅\n\n如需了解服務，很樂意協助！\n\n（溫馨提醒：過多無關詢問可能影響使用權限 ${count}/5）`;
+        replyMessage = `我主要協助美甲美睫的預約和諮詢 💅\n\n如需了解服務，很樂意協助！\n\n（溫馨提醒：過多無關詢問可能影響使用權限）`;
       }
     }
     
@@ -487,9 +495,9 @@ async function handleEvent(event) {
         
         if (count >= 5) {
           blockUser(userId, '閒聊超過 5 次（AI 判斷）', userMessage);
-          replyMessage = '很抱歉，由於您的詢問與我們的服務無關，系統已暫停您的使用權限。\n\n如有服務需求，歡迎來電：0966-698-612';
+          replyMessage = '很抱歉，由於您的詢問與我們的服務無關，系統已暫停您的使用權限。\n\n如需協助，請稍後等待專人聯繫。';
         } else {
-          replyMessage += `\n\n（提醒：請詢問服務相關問題 ${count}/5）`;
+          replyMessage += `\n\n（提醒：請詢問服務相關問題）`;
         }
       }
     }
