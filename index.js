@@ -79,22 +79,9 @@ async function getClaudeResponse(userMessage) {
 }
 // 處理訊息事件
 async function handleEvent(event) {
+  // 只處理文字訊息
   if (event.type !== 'message' || event.message.type !== 'text') {
     return Promise.resolve(null);
-  }
-  
-  // 臨時功能：取得 User ID
-  const userId = event.source.userId;
-  const userMessage = event.message.text;
-  
-  if (userMessage === '我的ID') {
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{
-        type: 'text',
-        text: `你的 LINE User ID:\n${userId}\n\n請複製這串 ID`
-      }]
-    });
   }
 
   // 取得用戶傳來的訊息
