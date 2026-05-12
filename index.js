@@ -182,13 +182,10 @@ async function handleEvent(event) {
       const unviewedBlocks = blockHistory.filter(b => !b.viewed);
       
       if (unviewedBlocks.length === 0) {
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{
-            type: 'text',
-            text: '✅ 目前沒有新的封鎖記錄'
-          }]
-        });
+        return client.replyMessage(event.replyToken, [{
+        type: 'text',
+        text: '✅ 目前沒有新的封鎖記錄'
+      }]);
       }
       
       let recordText = `⚠️ 封鎖記錄（${unviewedBlocks.length} 筆未查看）\n\n`;
@@ -199,13 +196,10 @@ async function handleEvent(event) {
         recordText += `   回覆「查看 ${index + 1}」可查看詳情\n\n`;
       });
       
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: recordText
-        }]
-      });
+      return client.replyMessage(event.replyToken, [{
+        type: 'text',
+        text: recordText
+      }]);
     }
     
     // 查看特定記錄
@@ -225,13 +219,10 @@ async function handleEvent(event) {
         
         record.viewed = true;
         
-        return client.replyMessage({
-          replyToken: event.replyToken,
-          messages: [{
-            type: 'text',
-            text: detailText
-          }]
-        });
+       return client.replyMessage(event.replyToken, [{
+          type: 'text',
+          text: detailText
+        }]);
       }
     }
     
@@ -250,23 +241,17 @@ async function handleEvent(event) {
             userChatCount[record.userId].count = 0;
           }
           
-          return client.replyMessage({
-            replyToken: event.replyToken,
-            messages: [{
-              type: 'text',
-              text: '✅ 已解除封鎖，該用戶可以正常使用了'
-            }]
-          });
+          return client.replyMessage(event.replyToken, [{
+          type: 'text',
+          text: detailText
+        }]);
         }
       }
       
-      return client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: '❌ 找不到該封鎖記錄'
-        }]
-      });
+      return client.replyMessage(event.replyToken, [{
+        type: 'text',
+        text: '❌ 找不到該封鎖記錄'
+      }]);
     }
   }
   
