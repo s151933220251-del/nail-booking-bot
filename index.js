@@ -1,7 +1,5 @@
-// 載入套件
-require('dotenv').config();
-const express = require('express');
 const line = require('@line/bot-sdk');
+const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 
 // LINE Bot 設定
@@ -10,18 +8,524 @@ const config = {
   channelAccessToken: process.env.CHANNEL_ACCESS_TOKEN
 };
 
-// 建立 LINE Bot client
-const client = new line.messagingApi.MessagingApiClient(config);
-
-// 建立 Claude client
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
-});
-
-// 建立 Express 伺服器
+const client = new line.Client(config);
 const app = express();
 
-// Webhook 路由
+// Anthropic API 設定
+const anthropic = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
+
+// ========== 保護系統：全域變數 ==========
+
+// 用戶閒聊計數
+const userChatCount = {};
+
+// 已封鎖的用戶列表
+const blockedUsers = [];
+
+// 封鎖記錄（供業主查看）
+const blockHistory = [];
+
+// 業主的 LINE User ID
+const OWNER_USER_ID = 'U7be81b18b26402cdb43a49fce56bc465';
+
+// 性騷擾關鍵字（可自行擴充）
+const harassmentKeywords = [
+  '約炮', '一夜情', '開房', '做愛', '上床',
+  '奶子', '屌', '雞雞', '鮑魚', '騷',
+  '妹妹', '正妹', '辣妹', '美女', '約嗎',
+  '好想要', '想幹', '想上', '半套', '全套'
+];
+
+// ========== 保護系統：檢查函數 ==========
+
+// 檢查是否為性騷擾
+function isHarassment(message) {
+  const lowerMessage = message.toLowerCase();
+  return harassmentKeywords.some(keyword => 
+    lowerMessage.includes(keyword.toLowerCase())
+  );
+}
+
+// 封鎖用戶
+function blockUser(userId, reason, message) {
+  if (!blockedUsers.includes(userId)) {
+    blockedUsers.push(userId);
+    
+    blockHistory.push({
+      userId: userId,
+      reason: reason,
+      message: message,
+      timestamp: new Date().toISOString(),
+      viewed: false
+    });
+    
+    console.log(`🚫 用戶已封鎖: ${userId}, 原因: ${reason}`);
+  }
+}
+
+// 檢查用戶是否已被封鎖
+function isBlocked(userId) {
+  return blockedUsers.includes(userId);
+}
+
+// 增加閒聊計數
+function incrementChatCount(userId) {
+  if (!userChatCount[userId]) {
+    userChatCount[userId] = {
+      count: 0,
+      lastReset: Date.now()
+    };
+  }
+  
+  // 24小時重置
+  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  if (userChatCount[userId].lastReset < oneDayAgo) {
+    userChatCount[userId].count = 0;
+    userChatCount[userId].lastReset = Date.now();
+  }
+  
+  userChatCount[userId].count++;
+  
+  console.log(`💬 用戶 ${userId} 閒聊計數: ${userChatCount[userId].count}/5`);
+  
+  return userChatCount[userId].count;
+}
+
+// ========== AI 回覆函數 ==========
+
+async function getClaudeResponse(userMessage) {
+  try {
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: `你是「有美美學美容工作室」的專業 LINE 客服助理。
+
+【店家資訊】
+- 店名：有美美學美容工作室
+- 地址：台北市萬華區貴陽街20號2樓
+- 電話：0966-698-612（僅緊急情況提供）
+- 營業時間：週一至週日 10:00-21:00
+- Instagram：https://www.instagram.com/umei1341_studio/
+
+【服務項目與價格】
+💅 美甲：單色 $900、雙色 $1,100、法式 $1,200、漸層 $1,300、造型設計 $1,200-2,000
+👁 美睫：$1,200 起
+🌿 精油按摩：$1,500 起
+✏️ 紋眉：$5,000 起
+😁 牙齒美白：$3,000 起
+👂 採耳：$800 起
+
+【重要行為準則】
+1. 所有服務都透過 LINE 處理，不要引導客戶打電話
+2. 主動收集預約資訊，不要叫客戶來電預約
+3. 回答要完整且有幫助，讓客戶不需要打電話就能解決問題
+
+【閒聊偵測】
+如果客戶的問題與美甲、美睫、預約、服務完全無關，在回答最前面加上「[CHAT]」標記。
+
+無關問題包括：
+- 關於 AI 本身（你幾歲、你是誰）
+- 天氣、新聞、政治
+- 要求聊天、說笑話、玩遊戲
+
+【回覆風格】
+- 用繁體中文
+- 親切專業但不過度熱情
+- 回答簡潔（3-5 行為主）
+- 適度使用表情符號（💅👁🌿等）
+
+【預約流程】
+當客戶想預約時，主動詢問並收集：
+1. 想做什麼服務？
+2. 希望的日期？
+3. 希望的時間？
+4. 您的姓名？
+5. 聯絡電話？
+
+收集完畢後說：
+"✅ 已為您記錄預約資訊！我們會盡快為您安排並確認時段，稍後會透過 LINE 回覆您 💕"
+
+【絕對不要做的事】
+❌ 不要說「歡迎來電」「請致電」「可以打電話」
+❌ 不要提供電話號碼（除非客戶明確要求緊急聯絡方式）
+❌ 不要把客戶推給電話客服
+✅ 所有問題都嘗試在 LINE 解決`,
+      messages: [{
+        role: 'user',
+        content: userMessage
+      }]
+    });
+
+    return message.content[0].text;
+  } catch (error) {
+    console.error('Claude API 錯誤:', error);
+    return '系統暫時忙碌中，請稍後再試 🙏';
+  }
+}
+
+// ========== 主要處理函數 ==========
+
+async function handleEvent(event) {
+  if (event.type !== 'message') return Promise.resolve(null);
+  
+  const userId = event.source.userId;
+  
+  // ========== 業主指令處理 ==========
+  
+  if (userId === OWNER_USER_ID && event.message.type === 'text') {
+    const userMessage = event.message.text;
+    
+    // 查看封鎖記錄
+    if (userMessage === '查看封鎖記錄' || userMessage === '封鎖記錄') {
+      const unviewedBlocks = blockHistory.filter(b => !b.viewed);
+      
+      if (unviewedBlocks.length === 0) {
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{
+            type: 'text',
+            text: '✅ 目前沒有新的封鎖記錄'
+          }]
+        });
+      }
+      
+      let recordText = `⚠️ 封鎖記錄（${unviewedBlocks.length} 筆未查看）\n\n`;
+      
+      unviewedBlocks.forEach((record, index) => {
+        recordText += `${index + 1}. ${record.reason}\n`;
+        recordText += `   時間：${new Date(record.timestamp).toLocaleString('zh-TW')}\n`;
+        recordText += `   回覆「查看 ${index + 1}」可查看詳情\n\n`;
+      });
+      
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: recordText
+        }]
+      });
+    }
+    
+    // 查看特定記錄
+    if (userMessage.startsWith('查看 ')) {
+      const index = parseInt(userMessage.replace('查看 ', '')) - 1;
+      const unviewedBlocks = blockHistory.filter(b => !b.viewed);
+      
+      if (index >= 0 && index < unviewedBlocks.length) {
+        const record = unviewedBlocks[index];
+        
+        let detailText = `📋 封鎖詳情\n\n`;
+        detailText += `原因：${record.reason}\n`;
+        detailText += `時間：${new Date(record.timestamp).toLocaleString('zh-TW')}\n`;
+        detailText += `用戶 ID：${record.userId}\n\n`;
+        detailText += `訊息內容：\n${record.message}\n\n`;
+        detailText += `回覆「解除封鎖 ${index + 1}」可解除封鎖`;
+        
+        record.viewed = true;
+        
+        return client.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{
+            type: 'text',
+            text: detailText
+          }]
+        });
+      }
+    }
+    
+    // 解除封鎖
+    if (userMessage.startsWith('解除封鎖 ')) {
+      const index = parseInt(userMessage.replace('解除封鎖 ', '')) - 1;
+      const record = blockHistory[index];
+      
+      if (record) {
+        const userIndex = blockedUsers.indexOf(record.userId);
+        if (userIndex > -1) {
+          blockedUsers.splice(userIndex, 1);
+          
+          // 重置閒聊計數
+          if (userChatCount[record.userId]) {
+            userChatCount[record.userId].count = 0;
+          }
+          
+          return client.replyMessage({
+            replyToken: event.replyToken,
+            messages: [{
+              type: 'text',
+              text: '✅ 已解除封鎖，該用戶可以正常使用了'
+            }]
+          });
+        }
+      }
+      
+      return client.replyMessage({
+        replyToken: event.replyToken,
+        messages: [{
+          type: 'text',
+          text: '❌ 找不到該封鎖記錄'
+        }]
+      });
+    }
+  }
+  
+  // ========== 一般用戶處理 ==========
+  
+  // 檢查是否已被封鎖
+  if (isBlocked(userId)) {
+    console.log(`🚫 已封鎖用戶嘗試傳訊: ${userId}`);
+    return Promise.resolve(null);
+  }
+  
+  // 只處理文字和圖片訊息
+  if (event.message.type === 'image') {
+    // 圖片視為不當內容，直接封鎖
+    blockUser(userId, '傳送不當圖片', '[圖片訊息]');
+    
+    // 通知業主
+    await client.pushMessage(OWNER_USER_ID, {
+      type: 'text',
+      text: '⚠️ 系統通知\n\n偵測到用戶傳送圖片，已自動封鎖。\n\n如需查看詳情，請回覆「查看封鎖記錄」'
+    });
+    
+    return Promise.resolve(null);
+  }
+  
+  if (event.message.type !== 'text') {
+    return Promise.resolve(null);
+  }
+  
+  const userMessage = event.message.text;
+  
+  // 檢查性騷擾
+  if (isHarassment(userMessage)) {
+    blockUser(userId, '性騷擾文字', userMessage);
+    
+    await client.pushMessage(OWNER_USER_ID, {
+      type: 'text',
+      text: '⚠️ 系統通知\n\n偵測到性騷擾訊息，已自動封鎖用戶。\n\n如需查看詳情，請回覆「查看封鎖記錄」'
+    });
+    
+    return Promise.resolve(null);
+  }
+  
+  // ========== 特殊處理：預約美甲 Flex Message ==========
+  
+  if ((userMessage.includes('預約') && userMessage.includes('美甲')) || 
+      userMessage.includes('我要預約美甲')) {
+    
+    const flexMessage = {
+      type: 'flex',
+      altText: '預約美甲說明',
+      contents: {
+        type: 'bubble',
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            {
+              type: 'text',
+              text: '💅 美甲預約說明',
+              weight: 'bold',
+              size: 'xl',
+              color: '#FF69B4'
+            },
+            {
+              type: 'separator',
+              margin: 'md'
+            },
+            {
+              type: 'text',
+              text: '請提供以下資訊：',
+              margin: 'lg',
+              weight: 'bold'
+            },
+            {
+              type: 'text',
+              text: '1️⃣ 想做的款式',
+              margin: 'md'
+            },
+            {
+              type: 'text',
+              text: '2️⃣ 希望的日期和時間',
+              margin: 'sm'
+            },
+            {
+              type: 'text',
+              text: '3️⃣ 您的姓名',
+              margin: 'sm'
+            },
+            {
+              type: 'text',
+              text: '4️⃣ 聯絡電話',
+              margin: 'sm'
+            }
+          ]
+        }
+      }
+    };
+    
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [flexMessage]
+    });
+  }
+  
+  // ========== 特殊處理：美甲價目表 ==========
+  
+  if (userMessage.includes('美甲')) {
+    const flexMessage = {
+      type: 'flex',
+      altText: '美甲價目表',
+      contents: {
+        type: 'bubble',
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            {
+              type: 'text',
+              text: '💅 美甲價目表',
+              weight: 'bold',
+              size: 'xl',
+              color: '#FF69B4'
+            },
+            {
+              type: 'separator',
+              margin: 'md'
+            },
+            {
+              type: 'box',
+              layout: 'vertical',
+              margin: 'lg',
+              spacing: 'sm',
+              contents: [
+                {
+                  type: 'text',
+                  text: '單色 ｜ NT$ 900',
+                  size: 'md'
+                },
+                {
+                  type: 'text',
+                  text: '雙色 ｜ NT$ 1,100',
+                  size: 'md'
+                },
+                {
+                  type: 'text',
+                  text: '法式 ｜ NT$ 1,200',
+                  size: 'md'
+                },
+                {
+                  type: 'text',
+                  text: '漸層 ｜ NT$ 1,300',
+                  size: 'md'
+                },
+                {
+                  type: 'text',
+                  text: '造型設計 ｜ NT$ 1,200-2,000',
+                  size: 'md'
+                }
+              ]
+            }
+          ]
+        }
+      }
+    };
+    
+    return client.replyMessage({
+      replyToken: event.replyToken,
+      messages: [flexMessage]
+    });
+  }
+  
+  // ========== 關鍵字回覆 ==========
+  
+  let replyMessage = '';
+  
+  if (userMessage.includes('你好') || userMessage.includes('嗨') || userMessage.includes('hi')) {
+    replyMessage = '你好！歡迎光臨有美美學美容工作室 ✨\n\n我們提供：\n💅 美甲\n👁 美睫\n🌿 精油按摩\n✏️ 紋眉\n😁 牙齒美白\n👂 採耳\n\n需要了解哪項服務呢？';
+  }
+  else if (userMessage.includes('營業時間') || userMessage.includes('幾點開') || userMessage.includes('時間')) {
+    replyMessage = '⏰ 營業時間\n\n週一至週日：10:00 - 21:00\n全年無休 ✨\n\n歡迎預約！';
+  }
+  else if (userMessage.includes('價格') || userMessage.includes('多少錢') || userMessage.includes('收費')) {
+    replyMessage = '💰 價格查詢\n\n💅 美甲：$900 起\n👁 美睫：$1,200 起\n🌿 精油按摩：$1,500 起\n✏️ 紋眉：$5,000 起\n😁 牙齒美白：$3,000 起\n👂 採耳：$800 起\n\n想了解詳細價格，歡迎直接詢問！';
+  }
+  else if (userMessage.includes('地址') || userMessage.includes('位置') || userMessage.includes('在哪')) {
+    replyMessage = '📍 店家位置\n\n台北市萬華區貴陽街20號2樓\n\n🚇 西門站 6 號出口，步行約 5 分鐘\n\nGoogle Maps: https://maps.app.goo.gl/xxx';
+  }
+  else if (userMessage.includes('預約')) {
+    replyMessage = '📅 預約方式\n\n請提供以下資訊：\n1️⃣ 想做的服務\n2️⃣ 希望的日期時間\n3️⃣ 您的姓名\n4️⃣ 聯絡電話\n\n我們會盡快為您安排 💕';
+  }
+  else if (userMessage.includes('作品') || userMessage.includes('照片') || userMessage.includes('圖片')) {
+    replyMessage = '📸 作品集\n\n歡迎追蹤我們的 Instagram 查看更多作品：\nhttps://www.instagram.com/umei1341_studio/\n\n每週都有新作品分享 ✨';
+  }
+  
+  // ========== 基礎閒聊黑名單 ==========
+  
+  else {
+    const chatKeywords = [
+      '你好嗎', '你幾歲', '你叫什麼', '你是誰', '你是什麼',
+      '說笑話', '聊天', '無聊', '陪我', '講故事',
+      '天氣', '新聞', '測試', 'test', '試試',
+      '玩遊戲', '唱歌', '跳舞'
+    ];
+    
+    const isChatting = chatKeywords.some(
+      keyword => userMessage.toLowerCase().includes(keyword.toLowerCase())
+    );
+    
+    if (isChatting) {
+      const count = incrementChatCount(userId);
+      
+      if (count >= 5) {
+        blockUser(userId, '閒聊超過 5 次', `最後訊息: ${userMessage}`);
+        replyMessage = '很抱歉，由於您的詢問與我們的服務無關，系統已暫停您的使用權限。\n\n如有服務需求，歡迎來電：0966-698-612';
+      } else {
+        replyMessage = `我主要協助美甲美睫的預約和諮詢 💅\n\n如需了解服務，很樂意協助！\n\n（溫馨提醒：過多無關詢問可能影響使用權限 ${count}/5）`;
+      }
+    }
+    
+    // ========== AI 智能回覆 ==========
+    
+    else {
+      console.log('🤖 使用 AI 回覆:', userMessage);
+      
+      replyMessage = await getClaudeResponse(userMessage);
+      
+      // 檢查 AI 是否判斷為閒聊
+      if (replyMessage.startsWith('[CHAT]')) {
+        replyMessage = replyMessage.replace('[CHAT]', '').trim();
+        
+        const count = incrementChatCount(userId);
+        
+        if (count >= 5) {
+          blockUser(userId, '閒聊超過 5 次（AI 判斷）', userMessage);
+          replyMessage = '很抱歉，由於您的詢問與我們的服務無關，系統已暫停您的使用權限。\n\n如有服務需求，歡迎來電：0966-698-612';
+        } else {
+          replyMessage += `\n\n（提醒：請詢問服務相關問題 ${count}/5）`;
+        }
+      }
+    }
+  }
+  
+  // 回覆訊息
+  return client.replyMessage({
+    replyToken: event.replyToken,
+    messages: [{
+      type: 'text',
+      text: replyMessage
+    }]
+  });
+}
+
+// ========== Express 路由 ==========
+
+app.get('/', (req, res) => {
+  res.send('LINE Bot is running!');
+});
+
 app.post('/webhook', line.middleware(config), (req, res) => {
   Promise
     .all(req.body.events.map(handleEvent))
@@ -32,379 +536,11 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
-// AI 回覆函數
-async function getClaudeResponse(userMessage) {
-  try {
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',  // ← 改成這個
-      max_tokens: 1024,
-      system: `你是「有美美學美容工作室」的專業LINE客服助理。
+// ========== 啟動服務器 ==========
 
-店家資訊：
-- 店名：有美美學美容工作室
-- 地址：台北市萬華區貴陽街20號2樓
-- 電話：0966-698-612
-- 營業時間：週一至週日 10:00-21:00
-- Instagram：https://www.instagram.com/umei1341_studio/
-
-服務項目與價格：
-【美甲】單色 $900、雙色 $1,100、法式 $1,200、漸層 $1,300、造型設計 $1,200-2,000
-【美睫】$1,200 起
-【精油按摩】$1,500 起
-【紋眉】$5,000 起
-【牙齒美白】$3,000 起
-【採耳】$800 起
-
-回覆原則：
-1. 用繁體中文回答
-2. 親切專業，不過度熱情
-3. 回答簡潔（3-5 行為主）
-4. 如果問到價格，提供價格後可主動詢問是否需要預約
-5. 如果客戶想預約，引導他們提供：服務項目、日期、時間、姓名、電話
-6. 所以問題都長是再LINE解決`,
-      messages: [
-        {
-          role: 'user',
-          content: userMessage
-        }
-      ]
-    });
-    
-    return message.content[0].text;
-    
-  } catch (error) {
-    console.error('Claude API 錯誤:', error);
-    return '抱歉，系統暫時忙碌中，請稍後再試或直接來電 0966-698-612 📞';
-  }
-}
-// 處理訊息事件
-async function handleEvent(event) {
-  // 只處理文字訊息
-  if (event.type !== 'message' || event.message.type !== 'text') {
-    return Promise.resolve(null);
-  }
-
-  // 取得用戶傳來的訊息
-  const userMessage = event.message.text;
-
-  // 取得 User ID（開發用）
-  if (userMessage === '我的ID') {
-    const userId = event.source.userId;
-    return client.replyMessage({
-      replyToken: event.replyToken,
-      messages: [{
-        type: 'text',
-        text: `你的 LINE User ID:\n${userId}\n\n請複製並保存`
-      }]
-    });
-  }
-  // 特殊處理：預約美甲（要在美甲價目表之前）
-  if ((userMessage.includes('預約') && userMessage.includes('美甲')) || 
-      userMessage.includes('我要預約美甲')) {
-    try {
-      await client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: '📅 預約美甲服務\n\n請告訴我：\n\n1️⃣ 希望的日期（例如：5月15日）\n2️⃣ 希望的時間（例如：下午2點）\n3️⃣ 想做的款式（單色/漸層/手繪等）\n\n例如：\n「我想5月15日下午2點做漸層美甲」\n\n📞 也可以直接來電預約：\n0966-698-612\n\n我們會盡快為您安排 💕'
-        }]
-      });
-      return Promise.resolve(null);
-    } catch (error) {
-      console.error('回覆訊息錯誤:', error);
-      return Promise.resolve(null);
-    }
-  }
-  
-  // 特殊處理：美甲（Flex Message 卡片）
-  if (userMessage.includes('美甲')) {
-    try {
-      await client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [
-          {
-            type: 'flex',
-            altText: '💅 美甲價目表',
-            contents: {
-              type: 'bubble',
-              hero: {
-  		type: 'image',
-  		url: 'https://raw.githubusercontent.com/s151933220251-del/photo/main/686009709_2054384062161399_5468553606698076932_n.jpg',
-  		size: 'full',
-  		aspectRatio: '2:3',
- 		aspectMode: 'fit',
-  		backgroundColor: '#F5F5DC'
-              },
-              body: {
-                type: 'box',
-                layout: 'vertical',
-                contents: [
-                  {
-                    type: 'text',
-                    text: '💅 美甲服務',
-                    weight: 'bold',
-                    size: 'xl',
-                    color: '#8B7355'
-                  },
-                  {
-                    type: 'box',
-                    layout: 'vertical',
-                    margin: 'lg',
-                    spacing: 'sm',
-                    contents: [
-                      {
-                        type: 'box',
-                        layout: 'baseline',
-                        spacing: 'sm',
-                        contents: [
-                          {
-                            type: 'text',
-                            text: '單色',
-                            color: '#8B7355',
-                            size: 'sm',
-                            flex: 2
-                          },
-                          {
-                            type: 'text',
-                            text: 'NT$ 900',
-                            wrap: true,
-                            color: '#666666',
-                            size: 'sm',
-                            flex: 3,
-                            align: 'end'
-                          }
-                        ]
-                      },
-                      {
-                        type: 'box',
-                        layout: 'baseline',
-                        spacing: 'sm',
-                        contents: [
-                          {
-                            type: 'text',
-                            text: '雙色',
-                            color: '#8B7355',
-                            size: 'sm',
-                            flex: 2
-                          },
-                          {
-                            type: 'text',
-                            text: 'NT$ 1,100',
-                            wrap: true,
-                            color: '#666666',
-                            size: 'sm',
-                            flex: 3,
-                            align: 'end'
-                          }
-                        ]
-                      },
-                      {
-                        type: 'box',
-                        layout: 'baseline',
-                        spacing: 'sm',
-                        contents: [
-                          {
-                            type: 'text',
-                            text: '法式',
-                            color: '#8B7355',
-                            size: 'sm',
-                            flex: 2
-                          },
-                          {
-                            type: 'text',
-                            text: 'NT$ 1,200',
-                            wrap: true,
-                            color: '#666666',
-                            size: 'sm',
-                            flex: 3,
-                            align: 'end'
-                          }
-                        ]
-                      },
-                      {
-                        type: 'box',
-                        layout: 'baseline',
-                        spacing: 'sm',
-                        contents: [
-                          {
-                            type: 'text',
-                            text: '漸層',
-                            color: '#8B7355',
-                            size: 'sm',
-                            flex: 2
-                          },
-                          {
-                            type: 'text',
-                            text: 'NT$ 1,300',
-                            wrap: true,
-                            color: '#666666',
-                            size: 'sm',
-                            flex: 3,
-                            align: 'end'
-                          }
-                        ]
-                      },
-                      {
-                        type: 'box',
-                        layout: 'baseline',
-                        spacing: 'sm',
-                        contents: [
-                          {
-                            type: 'text',
-                            text: '造型設計',
-                            color: '#8B7355',
-                            size: 'sm',
-                            flex: 2
-                          },
-                          {
-                            type: 'text',
-                            text: 'NT$ 1,200-2,000',
-                            wrap: true,
-                            color: '#666666',
-                            size: 'sm',
-                            flex: 3,
-                            align: 'end'
-                          }
-                        ]
-                      }
-                    ]
-                  },
-                  {
-                    type: 'separator',
-                    margin: 'lg'
-                  },
-                  {
-                    type: 'box',
-                    layout: 'vertical',
-                    margin: 'lg',
-                    contents: [
-                      {
-                        type: 'text',
-                        text: '⚠️ 實際價格依款式複雜度調整',
-                        size: 'xs',
-                        color: '#999999',
-                        wrap: true
-                      },
-                      {
-                        type: 'text',
-                        text: '歡迎提供喜歡的款式圖片詢價',
-                        size: 'xs',
-                        color: '#999999',
-                        wrap: true,
-                        margin: 'sm'
-                      }
-                    ]
-                  }
-                ]
-              },
-              footer: {
-                type: 'box',
-                layout: 'vertical',
-                spacing: 'sm',
-                contents: [
-                  {
-                    type: 'button',
-                    style: 'primary',
-                    height: 'sm',
-                    color: '#D4AF37',
-                    action: {
-                      type: 'message',
-                      label: '立即預約',
-                      text: '我要預約美甲'
-                    }
-                  },
-                  {
-                    type: 'button',
-                    style: 'link',
-                    height: 'sm',
-                    action: {
-                      type: 'uri',
-                      label: '查看作品集',
-                      uri: 'https://www.instagram.com/umei1341_studio/'
-                    }
-                  }
-                ],
-                flex: 0
-              }
-            }
-          }
-        ]
-      });
-      return Promise.resolve(null);
-    } catch (error) {
-      console.error('回覆訊息錯誤:', error);
-      return Promise.resolve(null);
-    }
-  }
-  
-  // 決定要回覆什麼（一般文字回覆）
-  let replyMessage = '';
-  
-  if (userMessage.includes('你好') || userMessage.includes('嗨') || userMessage.includes('您好')) {
-    replyMessage = '你好！歡迎光臨 ✨\n我是「有美美學美容工作室」預約助手 💅\n\n請問需要什麼服務呢？';
-  } 
-  else if (userMessage.includes('營業時間') || userMessage.includes('幾點') || userMessage.includes('時間')) {
-    replyMessage = '⏰ 營業時間：\n週一到週日 10:00-21:00\n\n📌 採預約制\n請提前預約以確保服務品質 ✨';
-  }
-  else if (userMessage.includes('價格') || userMessage.includes('多少錢') || userMessage.includes('收費') || userMessage.includes('費用')) {
-    replyMessage = '💰 價格查詢\n\n請告訴我您想詢問哪項服務的價格？\n\n我們提供：\n💅 美甲\n👁 美睫\n🌿 精油按摩\n✏️ 紋眉\n😁 牙齒美白\n👂 採耳\n\n直接輸入項目名稱即可查詢 ☺️';
-  }
-  else if (userMessage.includes('美睫') || userMessage.includes('精油') || userMessage.includes('按摩') || userMessage.includes('紋眉') || userMessage.includes('牙齒') || userMessage.includes('採耳')) {
-    replyMessage = '💰 價格查詢\n\n【美睫】NT$ 1,200 起\n【精油按摩】NT$ 1,500 起\n【紋眉】NT$ 5,000 起\n【牙齒美白】NT$ 3,000 起\n【採耳】NT$ 800 起\n\n⚠️ 以上為基礎價格\n實際價格依個人需求調整\n\n如需詳細諮詢\n請來電或加 LINE 詳談 ☺️\n\n📞 0966-698-612\n\n✨ 已通知店家為您服務\n稍後會有專人回覆您！';
-  }
-  else if (userMessage.includes('服務') || userMessage.includes('項目') || userMessage.includes('做什麼')) {
-    replyMessage = '✨ 有美美學 服務項目：\n\n💅 美甲\n👁 美睫\n🌿 精油按摩\n✏️ 紋眉\n😁 牙齒美白\n👂 採耳\n\n歡迎預約體驗 💕';
-  }
-  else if (userMessage.includes('預約')) {
-    replyMessage = '📅 預約服務：\n\n請告訴我：\n1️⃣ 想做什麼項目\n2️⃣ 希望的日期和時間\n\n例如：「我想預約明天下午3點做美甲」\n\n我會盡快為您安排 ☺️';
-  }
-  else if (userMessage.includes('地址') || userMessage.includes('位置') || userMessage.includes('怎麼去') || userMessage.includes('在哪')) {
-    replyMessage = '📍 有美美學美容工作室\n\n地址：台北市萬華區貴陽街20號2樓\n\n🚇 捷運：西門站 6號出口，步行約 5 分鐘\n🚌 公車：多線公車可達\n\n期待您的光臨 💕';
-  }
-  else if (userMessage.includes('停車')) {
-    replyMessage = '🅿️ 停車資訊：\n\n附近有收費停車格\n建議搭乘大眾運輸工具前來\n\n🚇 捷運西門站步行約 5 分鐘\n交通便利 ✨';
-  }
-  else if (userMessage.includes('注意') || userMessage.includes('須知')) {
-    replyMessage = '📋 預約須知：\n\n・採預約制，請提前預約\n・若需取消請提前 24 小時告知\n・遲到超過 15 分鐘視同取消\n・首次來店建議提早 10 分鐘到達\n\n感謝您的配合 💕';
-  }
-  else if (userMessage.includes('作品') || userMessage.includes('IG') || userMessage.includes('Instagram') || userMessage.includes('照片')) {
-    replyMessage = '📸 作品集\n\n歡迎追蹤我們的 Instagram\n看更多精緻作品 ✨\n\n👉 https://www.instagram.com/umei1341_studio/\n\n💕 期待為您服務';
-  }
-  else if (userMessage.includes('第一次') || userMessage.includes('新客') || userMessage.includes('沒來過')) {
-    replyMessage = '🎉 歡迎新朋友！\n\n首次來店流程：\n\n1️⃣ 先透過 LINE 預約\n2️⃣ 告知想做的項目\n3️⃣ 提早 10 分鐘到達\n4️⃣ 現場諮詢與確認\n5️⃣ 開始享受服務 ✨\n\n💡 小提醒：\n・請攜帶證件\n・穿著舒適衣物\n・如有過敏請事先告知\n\n有任何問題都可以問我哦 ☺️';
-  }
-  else if (userMessage.includes('取消') || userMessage.includes('改期') || userMessage.includes('不能去')) {
-    replyMessage = '📅 取消/改期預約\n\n請遵守以下規定：\n\n✅ 提前 24 小時告知\n→ 可免費取消或改期\n\n⚠️ 未提前 24 小時\n→ 需酌收 30% 訂金\n\n❌ 遲到超過 15 分鐘\n→ 視同取消，不退訂金\n\n📞 取消/改期請來電：\n0966-698-612\n\n或直接 LINE 告知\n我們會盡快為您處理 ☺️';
-  }
-  else if (userMessage.includes('付款') || userMessage.includes('怎麼付') || userMessage.includes('支付') || userMessage.includes('刷卡')) {
-    replyMessage = '💳 付款方式\n\n我們接受：\n\n💵 現金\n💳 信用卡（單筆滿 $1,000）\n📱 LINE Pay\n📱 街口支付\n🏦 轉帳（需提前告知）\n\n💰 訂金說明：\n部分服務需預付 30% 訂金\n（紋眉、牙齒美白等）\n\n現場付款即可 ☺️\n\n有問題歡迎詢問！';
-  }
-else {
-    // 🤖 沒有匹配的關鍵字，交給 AI 處理
-    console.log('🤖 使用 AI 回覆:', userMessage);
-    replyMessage = await getClaudeResponse(userMessage);
-  }
-
-  // 回覆訊息（一般文字）
-  if (replyMessage) {
-    try {
-      await client.replyMessage({
-        replyToken: event.replyToken,
-        messages: [{
-          type: 'text',
-          text: replyMessage
-        }]
-      });
-    } catch (error) {
-      console.error('回覆訊息錯誤:', error);
-    }
-  }
-}
-
-// 啟動伺服器
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`✅ LINE Bot 伺服器啟動成功！`);
-  console.log(`🚀 監聽 port ${port}`);
-  console.log(`📱 等待 LINE 訊息...`);
+  console.log(`✅ Server is running on port ${port}`);
+  console.log(`🛡️ 保護系統已啟動`);
+  console.log(`👤 業主 ID: ${OWNER_USER_ID}`);
 });
