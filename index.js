@@ -511,13 +511,10 @@ async function handleEvent(event) {
   }
   
   // 回覆訊息
-  return client.replyMessage({
-    replyToken: event.replyToken,
-    messages: [{
-      type: 'text',
-      text: replyMessage
-    }]
-  });
+  return client.replyMessage(event.replyToken, [{
+    type: 'text',
+    text: replyMessage
+  }]);
 }
 
 // ========== Express 路由 ==========
